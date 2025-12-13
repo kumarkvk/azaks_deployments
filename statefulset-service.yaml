@@ -1,0 +1,15 @@
+
+# Headless Service for stable network identities
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+spec:
+  ports:
+    - port: 3306
+      name: mysql
+  clusterIP: None  # Headless service
+  selector:
+    app: mysql
