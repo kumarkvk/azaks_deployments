@@ -1,0 +1,16 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: nginx
+spec:
+  scaleTargetRef:
+    name: nginx  # This should match the name of your Deployment/StatefulSet
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  triggers:
+  - type: cron
+    metadata:
+      timezone: Asia/Kolkata  # Required: Valid IANA timezone
+      start: 0 15 * * *     # Daily at 15:00 (3 PM)
+      end: 0 16 * * *       # Daily at 16:00 (4 PM)
+      desiredReplicas: "5"  # Force at least 5 replicas during the window
