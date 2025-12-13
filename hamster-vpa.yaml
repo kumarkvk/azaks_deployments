@@ -1,0 +1,12 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: hamster-vpa
+spec:
+  targetRef:
+    apiVersion: "apps/v1"
+    kind: Deployment
+    name: hamster
+  updatePolicy:
+    updateMode: "Recreate"  # Recommended for demo: evicts and recreates pod with new resources
+    # Alternatives: "Off" (recommendations only), "Initial" (on creation only)
