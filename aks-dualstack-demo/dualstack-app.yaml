@@ -1,0 +1,51 @@
+# Dual-stack demo application: a simple nginx Deployment exposed via a
+# dual-stack LoadBalancer Service, so you can curl it over both IPv4 and IPv6.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dualstack-demo
+  labels:
+    app: dualstack-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dualstack-demo
+  template:
+    metadata:
+      labels:
+        app: dualstack-demo
+    spec:
+      containers:
+        - name: web
+          image: mcr.microsoft.com/oss/nginx/nginx:1.25
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dualstack-demo-svc
+  annotations:
+    # Ensures the external LB itself gets both an IPv4 and IPv6 frontend.
+    service.beta.kubernetes.io/azure-pip-ipv6-name: dualstack-demo-svc-v6
+spec:
+  type: LoadBalancer
+  ipFamilyPolicy: RequireDualStack
+  ipFamilies:
+    - IPv4
+    - IPv6
+  selector:
+    app: dualstack-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
