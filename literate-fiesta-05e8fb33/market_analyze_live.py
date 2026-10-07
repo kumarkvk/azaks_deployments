@@ -45,7 +45,7 @@ SYMBOLS = {
 }
 
 # For intraday yfinance data, 5m is a practical default.
-INTERVAL = "2m"
+INTERVAL = "5m"
 PERIOD = "5d"
 
 # Refresh interval in seconds.
