@@ -1,0 +1,120 @@
+// TradingView Pine Script 2: Momentum & Theta Analysis for Options
+// Best for identifying time decay opportunities and momentum reversals
+
+//@version=5
+indicator("Nifty 50 Options - Momentum & Theta Analysis", overlay=false)
+
+// ===== INPUTS =====
+group_macd = "MACD Settings"
+macd_fast = input.int(12, "MACD Fast", minval=1, group=group_macd)
+macd_slow = input.int(26, "MACD Slow", minval=1, group=group_macd)
+macd_signal = input.int(9, "MACD Signal", minval=1, group=group_macd)
+
+group_momentum = "Momentum Settings"
+momentum_period = input.int(14, "Momentum Period", minval=1, group=group_momentum)
+roc_period = input.int(12, "ROC Period", minval=1, group=group_momentum)
+
+group_theta = "Theta (Time Decay) Settings"
+days_to_expiry = input.int(7, "Days to Options Expiry", minval=1, group=group_theta)
+
+// ===== CALCULATIONS =====
+
+// 1. MACD for momentum
+[macd_line, macd_signal_line, macd_histogram] = ta.macd(close, macd_fast, macd_slow, macd_signal)
+
+// 2. Momentum Indicator
+momentum = close - ta.highest(close, momentum_period)
+
+// 3. Rate of Change (ROC) - measures how fast price is changing
+roc = ta.roc(close, roc_period)
+
+// 4. MACD Histogram divergence (potential reversal signal)
+macd_div = macd_histogram - ta.sma(macd_histogram, 3)
+
+// 5. Theta decay factor (approximation)
+// More days to expiry = Higher theta decay rate
+// Less days to expiry = Theta accelerates (gamma/theta effect increases)
+theta_decay_factor = 1 / (days_to_expiry + 1)
+theta_intensity = theta_decay_factor * 100
+
+// 6. Price acceleration (useful for gamma strategies)
+price_change = ta.change(close)
+acceleration = ta.change(price_change)
+
+// ===== PLOTTING =====
+
+// Plot 1: MACD
+plot(macd_line, color=color.blue, linewidth=2, title="MACD Line")
+plot(macd_signal_line, color=color.red, linewidth=2, title="MACD Signal")
+plot(macd_histogram, color=color.new(color.gray, 50), style=plot.style_columns, title="MACD Histogram")
+hline(0, "", color.gray, linestyle.dashed)
+
+// Plot 2: Momentum
+plot(momentum, color=color.purple, linewidth=2, title="Momentum")
+
+// Plot 3: ROC (Rate of Change)
+plot(roc, color=color.orange, linewidth=1.5, title="ROC %")
+hline(0, "ROC Zero", color.gray, linestyle.dashed)
+
+// Plot 4: Theta Decay Intensity
+plot(theta_intensity, color=color.new(color.brown, 60), linewidth=2, title="Theta Intensity (Days to Expiry)")
+
+// ===== BACKGROUND SIGNALS FOR OPTIONS STRATEGIES =====
+
+// THETA DECAY OPPORTUNITY: When expiry is near and price consolidating
+consolidating = math.abs(momentum) < ta.atr(14) * 0.5
+theta_opportunity = (days_to_expiry <= 3) and consolidating
+bgcolor(theta_opportunity ? color.new(color.yellow, 70) : na, title="Theta Decay Opportunity")
+
+// MOMENTUM REVERSAL: When MACD histogram diverges from trend
+macd_bearish_div = (macd_histogram > 0) and (macd_histogram < macd_histogram[1]) and (momentum > 0)
+macd_bullish_div = (macd_histogram < 0) and (macd_histogram > macd_histogram[1]) and (momentum < 0)
+
+bgcolor(macd_bearish_div ? color.new(color.red, 60) : na, title="Bearish Divergence - Short Call")
+bgcolor(macd_bullish_div ? color.new(color.green, 60) : na, title="Bullish Divergence - Long Call")
+
+// ACCELERATION SIGNALS: For Gamma trading (directional + volatility)
+positive_acceleration = (acceleration > 0) and (price_change > 0)
+negative_acceleration = (acceleration < 0) and (price_change < 0)
+
+bgcolor(positive_acceleration ? color.new(color.lime, 30) : na, title="Positive Acceleration")
+bgcolor(negative_acceleration ? color.new(color.maroon, 30) : na, title="Negative Acceleration")
+
+// ===== OPTION STRATEGY RECOMMENDATIONS =====
+
+// Iron Condor: Theta decay + Consolidation + Low momentum
+iron_condor = (days_to_expiry <= 7) and consolidating and (math.abs(roc) < 2)
+
+// Straddle: When consolidation is about to break (high theta but ready to move)
+straddle_setup = (days_to_expiry <= 7) and (math.abs(momentum) < ta.atr(14))
+
+// Call Spread: Bullish momentum + Positive acceleration
+call_spread = (roc > 1) and positive_acceleration and (macd_line > macd_signal_line)
+
+// Put Spread: Bearish momentum + Negative acceleration
+put_spread = (roc < -1) and negative_acceleration and (macd_line < macd_signal_line)
+
+// ===== ALERTS =====
+alertcondition(theta_opportunity, title="THETA OPPORTUNITY", message="Consolidation with days to expiry - Consider Iron Condor/Straddle")
+alertcondition(macd_bearish_div, title="BEARISH DIVERGENCE", message="Consider Short Call or Put Spread")
+alertcondition(macd_bullish_div, title="BULLISH DIVERGENCE", message="Consider Long Call or Call Spread")
+alertcondition(call_spread, title="CALL SPREAD SETUP", message="Bullish acceleration - Consider Bull Call Spread")
+alertcondition(put_spread, title="PUT SPREAD SETUP", message="Bearish acceleration - Consider Bear Put Spread")
+
+// ===== TABLE INFO =====
+var table tbl = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 80), frame_color=color.gray, frame_width=1)
+
+table.cell(tbl, 0, 0, "MACD", text_color=color.white, text_size=size.small)
+table.cell(tbl, 1, 0, macd_line > macd_signal_line ? "BULLISH" : "BEARISH", text_color=macd_line > macd_signal_line ? color.green : color.red, text_size=size.small)
+
+table.cell(tbl, 0, 1, "Momentum", text_color=color.white, text_size=size.small)
+table.cell(tbl, 1, 1, momentum > 0 ? "POSITIVE" : "NEGATIVE", text_color=momentum > 0 ? color.green : color.red, text_size=size.small)
+
+table.cell(tbl, 0, 2, "Theta", text_color=color.white, text_size=size.small)
+table.cell(tbl, 1, 2, str.tostring(theta_intensity, "0.0") + "%", text_color=color.orange, text_size=size.small)
+
+table.cell(tbl, 0, 3, "Days to Expiry", text_color=color.white, text_size=size.small)
+table.cell(tbl, 1, 3, str.tostring(days_to_expiry, "0"), text_color=color.yellow, text_size=size.small)
+
+table.cell(tbl, 0, 4, "ROC", text_color=color.white, text_size=size.small)
+table.cell(tbl, 1, 4, str.tostring(roc, "0.0") + "%", text_color=roc > 0 ? color.green : color.red, text_size=size.small)

@@ -1,0 +1,150 @@
+// TradingView Pine Script 3: Volatility Crush & Straddle/Strangle Analysis
+// Perfect for identifying option selling opportunities
+
+//@version=5
+indicator("Nifty 50 Options - Volatility Crush & Strangle Setup", overlay=true)
+
+// ===== INPUTS =====
+group_bb = "Bollinger Bands Settings"
+bb_length = input.int(20, "BB Length", minval=1, group=group_bb)
+bb_mult = input.float(2.0, "BB Multiplier", minval=0.5, step=0.1, group=group_bb)
+
+group_atr = "ATR Settings"
+atr_length = input.int(14, "ATR Length", minval=1, group=group_atr)
+
+group_volatility = "Volatility Settings"
+vol_length = input.int(20, "Volatility Period", minval=1, group=group_volatility)
+vol_rank_period = input.int(50, "Vol Rank Period", minval=1, group=group_volatility)
+
+group_options = "Options Expiry Settings"
+days_expiry = input.int(7, "Days to Options Expiry", minval=1, group=group_options)
+strike_distance = input.float(2.0, "Strike Distance (%)", minval=0.5, step=0.1, group=group_options)
+
+// ===== CALCULATIONS =====
+
+// 1. Bollinger Bands
+[bb_middle, bb_upper, bb_lower] = ta.bb(close, bb_length, bb_mult)
+bb_width = bb_upper - bb_lower
+bb_width_sma = ta.sma(bb_width, 20)
+bb_expansion = bb_width > bb_width_sma
+bb_contraction = bb_width < bb_width_sma
+
+// 2. ATR for volatility proxy
+atr_val = ta.atr(atr_length)
+atr_sma = ta.sma(atr_val, 20)
+atr_ratio = (atr_val / atr_sma) * 100
+
+// 3. Historical Volatility & IV Rank
+daily_returns = ta.change(close) / close * 100
+hv = ta.stdev(daily_returns, vol_length) * math.sqrt(252) // Annualized HV
+hv_sma = ta.sma(hv, 20)
+hv_high = ta.highest(hv, vol_rank_period)
+hv_low = ta.lowest(hv, vol_rank_period)
+hv_rank = (hv - hv_low) / (hv_high - hv_low) * 100
+
+// 4. Volatility Expansion/Contraction Signal
+vol_expanding = (hv > hv_sma) and (bb_expansion)
+vol_contracting = (hv < hv_sma) and (bb_contraction)
+
+// 5. Calculate option strike levels based on ATR
+current_price = close
+call_strike = current_price + (current_price * strike_distance / 100)
+put_strike = current_price - (current_price * strike_distance / 100)
+
+// 6. Price distance from bands (useful for strangle)
+distance_to_upper = (bb_upper - close) / bb_width * 100
+distance_to_lower = (close - bb_lower) / bb_width * 100
+
+// 7. Consolidation detector (for straddle setups)
+atr_low = ta.lowest(atr_val, 20)
+is_consolidating = atr_val < atr_low + (atr_low * 0.5)
+
+// ===== PLOTTING =====
+
+// Plot Bollinger Bands
+plot(bb_upper, color=color.new(color.red, 50), linewidth=1, title="BB Upper")
+plot(bb_middle, color=color.new(color.gray, 50), linewidth=1, title="BB Middle")
+plot(bb_lower, color=color.new(color.green, 50), linewidth=1, title="BB Lower")
+
+// Plot Strike Levels for Options
+plot(call_strike, color=color.new(color.red, 40), linewidth=2, style=plot.style_linebr, title="Call Strike Level")
+plot(put_strike, color=color.new(color.green, 40), linewidth=2, style=plot.style_linebr, title="Put Strike Level")
+
+// Plot middle line
+plot(current_price, color=color.blue, linewidth=3, style=plot.style_linebr, title="Current Price")
+
+// ===== BACKGROUND SIGNALS =====
+
+// VOLATILITY CRUSH OPPORTUNITY: High IV then contraction
+vol_crush_setup = vol_expanding[1] and vol_contracting and (hv_rank > 60)
+bgcolor(vol_crush_setup ? color.new(color.orange, 70) : na, title="Volatility Crush Setup")
+
+// STRADDLE SETUP: Low volatility + consolidating + days remaining
+straddle_setup = is_consolidating and (hv_rank < 30) and (days_expiry >= 3)
+bgcolor(straddle_setup ? color.new(color.blue, 60) : na, title="Straddle Setup")
+
+// STRANGLE SETUP: Price between bands + moderate volatility
+strangle_setup = (distance_to_upper > 20) and (distance_to_upper < 80) and (hv_rank > 30) and (hv_rank < 70)
+bgcolor(strangle_setup ? color.new(color.purple, 60) : na, title="Strangle Setup")
+
+// SHORT CALL: High IV + price near upper band
+short_call = (hv_rank > 70) and (distance_to_upper < 20) and (days_expiry >= 2)
+bgcolor(short_call ? color.new(color.red, 50) : na, title="Short Call Zone")
+
+// SHORT PUT: High IV + price near lower band
+short_put = (hv_rank > 70) and (distance_to_lower < 20) and (days_expiry >= 2)
+bgcolor(short_put ? color.new(color.maroon, 50) : na, title="Short Put Zone")
+
+// LONG STRADDLE: Low IV + consolidating at middle
+long_straddle = (hv_rank < 25) and is_consolidating and (distance_to_upper > 35) and (distance_to_upper < 65)
+bgcolor(long_straddle ? color.new(color.lime, 40) : na, title="Long Straddle Setup")
+
+// ===== TABLE WITH OPTION STATS =====
+var table info_table = table.new(position.bottom_right, 3, 8, 
+     bgcolor=color.new(color.black, 85), 
+     frame_color=color.gray, 
+     frame_width=2)
+
+// Headers
+table.cell(info_table, 0, 0, "METRIC", text_color=color.white, text_size=size.small, bgcolor=color.new(color.navy, 80))
+table.cell(info_table, 1, 0, "VALUE", text_color=color.white, text_size=size.small, bgcolor=color.new(color.navy, 80))
+table.cell(info_table, 2, 0, "STATUS", text_color=color.white, text_size=size.small, bgcolor=color.new(color.navy, 80))
+
+// Rows
+table.cell(info_table, 0, 1, "IV Rank", text_color=color.white, text_size=size.small)
+table.cell(info_table, 1, 1, str.tostring(hv_rank, "0.0") + "%", text_color=color.yellow, text_size=size.small)
+table.cell(info_table, 2, 1, hv_rank > 70 ? "HIGH" : (hv_rank < 30 ? "LOW" : "MID"), 
+           text_color=hv_rank > 70 ? color.red : (hv_rank < 30 ? color.green : color.gray), text_size=size.small)
+
+table.cell(info_table, 0, 2, "Volatility", text_color=color.white, text_size=size.small)
+table.cell(info_table, 1, 2, vol_expanding ? "EXPANDING" : "CONTRACTING", text_color=vol_expanding ? color.red : color.green, text_size=size.small)
+table.cell(info_table, 2, 2, "", text_size=size.small)
+
+table.cell(info_table, 0, 3, "BB Width %", text_color=color.white, text_size=size.small)
+table.cell(info_table, 1, 3, str.tostring((bb_width/close)*100, "0.0") + "%", text_color=color.blue, text_size=size.small)
+table.cell(info_table, 2, 3, bb_expansion ? "WIDE" : "NARROW", text_color=bb_expansion ? color.orange : color.cyan, text_size=size.small)
+
+table.cell(info_table, 0, 4, "Price Position", text_color=color.white, text_size=size.small)
+table.cell(info_table, 1, 4, str.tostring(distance_to_upper, "0.0") + "%", text_color=color.white, text_size=size.small)
+table.cell(info_table, 2, 4, distance_to_upper < 20 ? "UPPER BAND" : (distance_to_upper > 80 ? "LOWER BAND" : "MIDDLE"), 
+           text_color=distance_to_upper < 20 ? color.red : (distance_to_upper > 80 ? color.green : color.gray), text_size=size.small)
+
+table.cell(info_table, 0, 5, "Consolidating", text_color=color.white, text_size=size.small)
+table.cell(info_table, 1, 5, is_consolidating ? "YES" : "NO", text_color=is_consolidating ? color.green : color.red, text_size=size.small)
+table.cell(info_table, 2, 5, "", text_size=size.small)
+
+table.cell(info_table, 0, 6, "Call Strike", text_color=color.white, text_size=size.small)
+table.cell(info_table, 1, 6, str.tostring(call_strike, "0.0"), text_color=color.red, text_size=size.small)
+table.cell(info_table, 2, 6, "", text_size=size.small)
+
+table.cell(info_table, 0, 7, "Put Strike", text_color=color.white, text_size=size.small)
+table.cell(info_table, 1, 7, str.tostring(put_strike, "0.0"), text_color=color.green, text_size=size.small)
+table.cell(info_table, 2, 7, "", text_size=size.small)
+
+// ===== ALERTS =====
+alertcondition(vol_crush_setup, title="VOLATILITY CRUSH", message="IV peaked - Volatility crush likely - Consider credit spreads")
+alertcondition(straddle_setup, title="STRADDLE SETUP", message="Low IV + Consolidating - Consider Long Straddle")
+alertcondition(strangle_setup, title="STRANGLE SETUP", message="Moderate IV + Mid-range price - Consider Long Strangle")
+alertcondition(long_straddle, title="LONG STRADDLE", message="Excellent for Long Straddle - Expect volatility expansion")
+alertcondition(short_call, title="SHORT CALL ZONE", message="High IV + Near resistance - Consider Short Call")
+alertcondition(short_put, title="SHORT PUT ZONE", message="High IV + Near support - Consider Short Put")

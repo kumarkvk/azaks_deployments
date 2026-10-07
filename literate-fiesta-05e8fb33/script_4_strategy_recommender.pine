@@ -1,0 +1,227 @@
+// TradingView Pine Script 4: Automatic Option Strategy Recommender
+// Suggests best option strategy based on current market conditions
+
+//@version=5
+indicator("Nifty 50 Options - Strategy Recommender", overlay=false)
+
+// ===== INPUTS =====
+days_expiry = input.int(5, "Days to Expiry", minval=1)
+
+// ===== CORE CALCULATIONS =====
+
+// 1. Volatility (Historical)
+returns = ta.change(close) / close * 100
+hv = ta.stdev(returns, 20) * math.sqrt(252)
+hv_rank = (hv - ta.lowest(hv, 50)) / (ta.highest(hv, 50) - ta.lowest(hv, 50)) * 100
+
+// 2. Trend
+sma20 = ta.sma(close, 20)
+sma50 = ta.sma(close, 50)
+trending_up = close > sma20 and close > sma50 and sma20 > sma50
+trending_down = close < sma20 and close < sma50 and sma20 < sma50
+is_trending = trending_up or trending_down
+
+// 3. Momentum
+rsi = ta.rsi(close, 14)
+macd_line = ta.ema(close, 12) - ta.ema(close, 26)
+macd_signal = ta.sma(macd_line, 9)
+bullish_macd = macd_line > macd_signal
+bearish_macd = macd_line < macd_signal
+
+// 4. Volatility Status
+[bb_middle, bb_upper, bb_lower] = ta.bb(close, 20, 2)
+atr = ta.atr(14)
+price_from_upper = (bb_upper - close) / atr
+price_from_lower = (close - bb_lower) / atr
+at_upper_band = price_from_upper < 0.5
+at_lower_band = price_from_lower < 0.5
+at_middle = (price_from_upper > 0.4) and (price_from_lower > 0.4)
+
+// ===== STRATEGY RECOMMENDATION ENGINE =====
+
+// Score each strategy (0-100)
+
+// 1. BULL CALL SPREAD
+bull_call_score = 0
+if trending_up and bullish_macd and rsi < 60
+    bull_call_score += 30
+if hv_rank > 50 and hv_rank < 80
+    bull_call_score += 20
+if price_from_lower > 0.3
+    bull_call_score += 20
+if days_expiry >= 3 and days_expiry <= 7
+    bull_call_score += 20
+if rsi < 65
+    bull_call_score += 10
+
+// 2. BEAR PUT SPREAD
+bear_put_score = 0
+if trending_down and bearish_macd and rsi > 40
+    bear_put_score += 30
+if hv_rank > 50 and hv_rank < 80
+    bear_put_score += 20
+if price_from_upper > 0.3
+    bear_put_score += 20
+if days_expiry >= 3 and days_expiry <= 7
+    bear_put_score += 20
+if rsi > 35
+    bear_put_score += 10
+
+// 3. LONG STRADDLE
+long_straddle_score = 0
+if hv_rank < 30
+    long_straddle_score += 40
+if not is_trending
+    long_straddle_score += 20
+if at_middle
+    long_straddle_score += 20
+if days_expiry >= 5
+    long_straddle_score += 10
+if math.abs(rsi - 50) > 15
+    long_straddle_score += 10
+
+// 4. IRON CONDOR
+iron_condor_score = 0
+if not is_trending
+    iron_condor_score += 30
+if at_middle
+    iron_condor_score += 20
+if hv_rank > 40 and hv_rank < 70
+    iron_condor_score += 20
+if days_expiry >= 5 and days_expiry <= 10
+    iron_condor_score += 20
+if math.abs(rsi - 50) < 20
+    iron_condor_score += 10
+
+// 5. LONG CALL
+long_call_score = 0
+if trending_up
+    long_call_score += 30
+if bullish_macd and rsi < 60
+    long_call_score += 25
+if hv_rank < 50
+    long_call_score += 20
+if price_from_lower > 0.2
+    long_call_score += 15
+if days_expiry >= 2
+    long_call_score += 10
+
+// 6. LONG PUT
+long_put_score = 0
+if trending_down
+    long_put_score += 30
+if bearish_macd and rsi > 40
+    long_put_score += 25
+if hv_rank < 50
+    long_put_score += 20
+if price_from_upper > 0.2
+    long_put_score += 15
+if days_expiry >= 2
+    long_put_score += 10
+
+// 7. SHORT CALL (Covered/Naked)
+short_call_score = 0
+if trending_down
+    short_call_score += 25
+if bearish_macd or rsi > 70
+    short_call_score += 20
+if hv_rank > 70
+    short_call_score += 25
+if at_upper_band
+    short_call_score += 20
+if days_expiry >= 2 and days_expiry <= 5
+    short_call_score += 10
+
+// 8. SHORT PUT (Cash Secured)
+short_put_score = 0
+if trending_up
+    short_put_score += 25
+if bullish_macd or rsi < 30
+    short_put_score += 20
+if hv_rank > 70
+    short_put_score += 25
+if at_lower_band
+    short_put_score += 20
+if days_expiry >= 2 and days_expiry <= 5
+    short_put_score += 10
+
+// ===== FIND TOP STRATEGIES =====
+best_score = math.max(bull_call_score, bear_put_score, long_straddle_score, iron_condor_score, 
+                      long_call_score, long_put_score, short_call_score, short_put_score)
+
+// ===== PLOT RESULTS =====
+// Create a simple bar chart showing scores
+plot(bull_call_score, color=color.new(color.blue, 50), style=plot.style_columns, title="Bull Call")
+plot(bear_put_score, color=color.new(color.red, 50), style=plot.style_columns, title="Bear Put")
+plot(iron_condor_score, color=color.new(color.purple, 50), style=plot.style_columns, title="Iron Condor")
+plot(long_straddle_score, color=color.new(color.orange, 50), style=plot.style_columns, title="Long Straddle")
+
+// ===== RECOMMENDATION TABLE =====
+var table rec_table = table.new(position.top_left, 2, 10, 
+     bgcolor=color.new(color.black, 85), 
+     frame_color=color.gray, 
+     frame_width=2)
+
+// Header
+table.cell(rec_table, 0, 0, "STRATEGY", text_color=color.white, text_size=size.small, bgcolor=color.new(color.navy, 80))
+table.cell(rec_table, 1, 0, "SCORE", text_color=color.white, text_size=size.small, bgcolor=color.new(color.navy, 80))
+
+// Rows
+strategies = array.new<string>(array.size(array.new<float>()))
+scores = array.new<float>()
+
+array.push(scores, bull_call_score)
+array.push(scores, bear_put_score)
+array.push(scores, iron_condor_score)
+array.push(scores, long_straddle_score)
+array.push(scores, long_call_score)
+array.push(scores, long_put_score)
+array.push(scores, short_call_score)
+array.push(scores, short_put_score)
+
+table.cell(rec_table, 0, 1, "Bull Call Spread", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 1, str.tostring(bull_call_score, "0"), 
+          text_color=bull_call_score > 50 ? color.green : color.gray, text_size=size.small)
+
+table.cell(rec_table, 0, 2, "Bear Put Spread", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 2, str.tostring(bear_put_score, "0"), 
+          text_color=bear_put_score > 50 ? color.green : color.gray, text_size=size.small)
+
+table.cell(rec_table, 0, 3, "Iron Condor", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 3, str.tostring(iron_condor_score, "0"), 
+          text_color=iron_condor_score > 50 ? color.green : color.gray, text_size=size.small)
+
+table.cell(rec_table, 0, 4, "Long Straddle", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 4, str.tostring(long_straddle_score, "0"), 
+          text_color=long_straddle_score > 50 ? color.green : color.gray, text_size=size.small)
+
+table.cell(rec_table, 0, 5, "Long Call", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 5, str.tostring(long_call_score, "0"), 
+          text_color=long_call_score > 50 ? color.green : color.gray, text_size=size.small)
+
+table.cell(rec_table, 0, 6, "Long Put", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 6, str.tostring(long_put_score, "0"), 
+          text_color=long_put_score > 50 ? color.green : color.gray, text_size=size.small)
+
+table.cell(rec_table, 0, 7, "Short Call", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 7, str.tostring(short_call_score, "0"), 
+          text_color=short_call_score > 50 ? color.green : color.gray, text_size=size.small)
+
+table.cell(rec_table, 0, 8, "Short Put", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 8, str.tostring(short_put_score, "0"), 
+          text_color=short_put_score > 50 ? color.green : color.gray, text_size=size.small)
+
+table.cell(rec_table, 0, 9, "Trend", text_color=color.white, text_size=size.small)
+table.cell(rec_table, 1, 9, is_trending ? (trending_up ? "UP" : "DOWN") : "RANGE", 
+          text_color=is_trending ? (trending_up ? color.green : color.red) : color.orange, text_size=size.small)
+
+// ===== ALERTS =====
+high_score_bull = bull_call_score > 60
+high_score_bear = bear_put_score > 60
+high_score_straddle = long_straddle_score > 60
+high_score_ic = iron_condor_score > 60
+
+alertcondition(high_score_bull, title="BULL CALL OPPORTUNITY", message="Bull Call Spread score > 60")
+alertcondition(high_score_bear, title="BEAR PUT OPPORTUNITY", message="Bear Put Spread score > 60")
+alertcondition(high_score_straddle, title="LONG STRADDLE OPPORTUNITY", message="Long Straddle score > 60")
+alertcondition(high_score_ic, title="IRON CONDOR OPPORTUNITY", message="Iron Condor score > 60")

@@ -1,0 +1,92 @@
+// TradingView Pine Script for Nifty 50 Options Trading Analysis
+// Script 1: Options Greeks Simulator & Volatility Analysis
+// Works on: 1D, 4H, 1H timeframes
+
+//@version=5
+indicator("Nifty 50 Options Trading Setup - Greeks & Volatility", overlay=false)
+
+// ===== INPUT PARAMETERS =====
+group_vol = "Volatility Settings"
+period_vol = input.int(20, "Volatility Period", minval=1, group=group_vol)
+atr_period = input.int(14, "ATR Period", minval=1, group=group_vol)
+
+group_levels = "Support/Resistance"
+lookback = input.int(50, "Lookback Period", minval=10, group=group_levels)
+
+group_rsi = "RSI Settings"
+rsi_period = input.int(14, "RSI Period", minval=1, group=group_rsi)
+overbought = input.int(70, "Overbought Level", minval=1, maxval=100, group=group_rsi)
+oversold = input.int(30, "Oversold Level", minval=1, maxval=100, group=group_rsi)
+
+// ===== CALCULATIONS =====
+
+// 1. Historical Volatility (IV Rank Proxy)
+returns = ta.change(close) / close * 100
+hv = ta.stdev(returns, period_vol)
+hv_rank = (hv - ta.lowest(hv, lookback)) / (ta.highest(hv, lookback) - ta.lowest(hv, lookback)) * 100
+
+// 2. ATR for option strike width
+atr = ta.atr(atr_period)
+atr_percent = (atr / close) * 100
+
+// 3. Support & Resistance (High/Low)
+support = ta.lowest(low, lookback)
+resistance = ta.highest(high, lookback)
+mid_price = (support + resistance) / 2
+
+// 4. RSI for directional bias
+rsi = ta.rsi(close, rsi_period)
+
+// 5. Bollinger Bands for mean reversion signals
+[bb_middle, bb_upper, bb_lower] = ta.bb(close, 20, 2)
+bb_width = bb_upper - bb_lower
+bb_width_pct = (bb_width / close) * 100
+
+// ===== PLOTTING =====
+
+// Plot 1: Volatility Rank (0-100 scale)
+plot(hv_rank, color=color.blue, linewidth=2, title="IV Rank (%)")
+hline(50, "IV Median", color.gray, linestyle.dashed)
+hline(75, "High IV", color.orange, linestyle.dotted)
+hline(25, "Low IV", color.green, linestyle.dotted)
+
+// Plot 2: ATR % for strike selection
+plot(atr_percent, color=color.red, linewidth=1.5, title="ATR % (Strike Width)")
+
+// Plot 3: Support & Resistance Zones
+plot(support, color=color.green, linewidth=1, title="Support", style=plot.style_line)
+plot(resistance, color=color.red, linewidth=1, title="Resistance", style=plot.style_line)
+plot(mid_price, color=color.gray, linewidth=1, title="Mid Price", style=plot.style_linebr)
+
+// Plot 4: RSI
+plot(rsi, color=color.purple, linewidth=2, title="RSI")
+hline(overbought, "Overbought", color.red, linestyle.dotted)
+hline(oversold, "Oversold", color.green, linestyle.dotted)
+hline(50, "RSI Neutral", color.gray, linestyle.dashed)
+
+// Plot 5: Bollinger Band Width %
+plot(bb_width_pct, color=color.orange, linewidth=1, title="BB Width %")
+
+// ===== BACKGROUND ALERTS FOR OPTIONS STRATEGIES =====
+
+// Long Call Setup: Low IV + Oversold + Support
+long_call_signal = (hv_rank < 25) and (rsi < 35) and (close < support + (support * 0.02))
+bgcolor(long_call_signal ? color.new(color.green, 80) : na, title="Long Call Setup")
+
+// Short Call Setup: High IV + Overbought + Resistance
+short_call_signal = (hv_rank > 75) and (rsi > 65) and (close > resistance - (resistance * 0.02))
+bgcolor(short_call_signal ? color.new(color.red, 80) : na, title="Short Call Setup")
+
+// Long Put Setup: Low IV + Overbought + Resistance
+long_put_signal = (hv_rank < 25) and (rsi > 65) and (close > resistance - (resistance * 0.02))
+bgcolor(long_put_signal ? color.new(color.blue, 80) : na, title="Long Put Setup")
+
+// Short Put Setup: High IV + Oversold + Support
+short_put_signal = (hv_rank > 75) and (rsi < 35) and (close < support + (support * 0.02))
+bgcolor(short_put_signal ? color.new(color.orange, 80) : na, title="Short Put Setup")
+
+// ===== ALERTS =====
+alertcondition(long_call_signal, title="LONG CALL SETUP", message="Low IV + Oversold + Support - Consider Long Call")
+alertcondition(short_call_signal, title="SHORT CALL SETUP", message="High IV + Overbought + Resistance - Consider Short Call")
+alertcondition(long_put_signal, title="LONG PUT SETUP", message="Low IV + Overbought + Resistance - Consider Long Put")
+alertcondition(short_put_signal, title="SHORT PUT SETUP", message="High IV + Oversold + Support - Consider Short Put")
